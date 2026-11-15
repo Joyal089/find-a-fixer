@@ -38,6 +38,12 @@
         }
       ],
       "expo-notifications"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "75dd862c-1376-4e85-b692-e648b0ec13d4"
+      }
+    },
+    "owner": "find-a-fixer"
   }
 }
