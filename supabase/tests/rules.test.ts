@@ -66,6 +66,19 @@ async function postJob(uid: string, input: JobInput = {}): Promise<string> {
   return id;
 }
 
+const accept = (owner: string, job: string) => as(owner, (q) => q.query(`select public.accept_job($1)`, [job]));
+
+/** Company sends a quote and the customer accepts it: the step that creates the lead. */
+async function quoteAndAccept(owner: string, customer: string, job: string): Promise<void> {
+  const quote = await as(owner, async (q) =>
+    (await q.query<{ id: string }>(`select public.send_quote($1, 15000, null, now() + interval '2 days') as id`, [job])).rows[0]!.id,
+  );
+  await as(customer, (q) => q.query(`select public.respond_to_quote($1, true)`, [quote]));
+}
+
+const leadCount = async (job: string): Promise<number> =>
+  (await db.query(`select 1 from public.leads where job_id = $1`, [job])).rows.length;
+
 const count = async (uid: string | null, sql: string, params: unknown[] = []): Promise<number> =>
   as(uid, async (q) => (await q.query(sql, params)).rows.length);
 
@@ -159,21 +172,37 @@ describe('who can see what', () => {
   });
 });
 
-describe('accepting a job and logging the lead', () => {
-  it('logs exactly one lead the moment a company accepts, and locks others out', async () => {
+describe('accepting a job, the lead and the monthly limit', () => {
+  it('accepting a job locks other companies out but logs no lead', async () => {
     const customer = await newUser(true);
     const job = await postJob(customer);
     const first = await newCompany(['plumbing'], ['Casuarina']);
     const second = await newCompany(['plumbing'], ['Casuarina']);
 
-    await as(first.owner, (q) => q.query(`select public.accept_job($1)`, [job]));
-    const leads = await db.query<{ company_id: string; counted: boolean }>(`select company_id, counted from public.leads where job_id = $1`, [job]);
-    assert.deepEqual(leads.rows, [{ company_id: first.id, counted: true }]);
+    await accept(first.owner, job);
+    assert.equal(await leadCount(job), 0, 'no lead until the quote is accepted');
 
-    await rejects(as(second.owner, (q) => q.query(`select public.accept_job($1)`, [job])), /JOB_TAKEN/);
+    await rejects(accept(second.owner, job), /JOB_TAKEN/);
     assert.equal(await count(second.owner, `select * from public.jobs where id = $1`, [job]), 0);
-    assert.equal(await count(second.owner, `select * from public.leads`), 0);
-    assert.equal(await count(first.owner, `select * from public.leads where job_id = $1`, [job]), 1);
+    await rejects(as(null, (q) => q.query(`select public.accept_job($1)`, [job])), /permission denied/);
+  });
+
+  it('logs exactly one lead when the customer accepts the quote, not when they decline', async () => {
+    const customer = await newUser(true);
+    const job = await postJob(customer);
+    const company = await newCompany(['plumbing'], ['Casuarina']);
+    const rival = await newCompany(['plumbing'], ['Casuarina']);
+    await accept(company.owner, job);
+
+    const declined = await as(company.owner, async (q) => (await q.query<{ id: string }>(`select public.send_quote($1, 20000, null, now() + interval '1 day') as id`, [job])).rows[0]!.id);
+    await as(customer, (q) => q.query(`select public.respond_to_quote($1, false)`, [declined]));
+    assert.equal(await leadCount(job), 0, 'a declined quote is not a lead');
+
+    await quoteAndAccept(company.owner, customer, job);
+    const leads = await db.query<{ company_id: string; counted: boolean }>(`select company_id, counted from public.leads where job_id = $1`, [job]);
+    assert.deepEqual(leads.rows, [{ company_id: company.id, counted: true }]);
+    assert.equal(await count(company.owner, `select * from public.leads where job_id = $1`, [job]), 1);
+    assert.equal(await count(rival.owner, `select * from public.leads`), 0);
   });
 
   it('refuses unapproved companies and jobs outside the company trades', async () => {
@@ -181,19 +210,51 @@ describe('accepting a job and logging the lead', () => {
     const job = await postJob(customer);
     const pending = await newCompany(['plumbing'], ['Casuarina'], false);
     const wrongTrade = await newCompany(['electrical'], ['Casuarina']);
-    await rejects(as(pending.owner, (q) => q.query(`select public.accept_job($1)`, [job])), /COMPANY_NOT_APPROVED/);
-    await rejects(as(wrongTrade.owner, (q) => q.query(`select public.accept_job($1)`, [job])), /JOB_NOT_FOUND/);
-    assert.equal((await db.query(`select 1 from public.leads where job_id = $1`, [job])).rows.length, 0);
+    await rejects(accept(pending.owner, job), /COMPANY_NOT_APPROVED/);
+    await rejects(accept(wrongTrade.owner, job), /JOB_NOT_FOUND/);
+    assert.equal((await db.query<{ status: string }>(`select status from public.jobs where id = $1`, [job])).rows[0]!.status, 'posted');
   });
 
-  it('enforces the monthly lead limit', async () => {
+  it('counts accepted jobs still waiting on a quote toward the monthly limit', async () => {
     const company = await newCompany(['plumbing'], ['Casuarina']);
     await db.query(`update public.companies set monthly_lead_limit = 1 where id = $1`, [company.id]);
     const customer = await newUser(true);
     const jobOne = await postJob(customer);
     const jobTwo = await postJob(customer);
-    await as(company.owner, (q) => q.query(`select public.accept_job($1)`, [jobOne]));
-    await rejects(as(company.owner, (q) => q.query(`select public.accept_job($1)`, [jobTwo])), /LEAD_LIMIT_REACHED/);
+    await accept(company.owner, jobOne);
+    await rejects(accept(company.owner, jobTwo), /LEAD_LIMIT_REACHED/);
+  });
+
+  it('adds this month\'s leads to the waiting jobs, counting each job once', async () => {
+    const company = await newCompany(['plumbing'], ['Casuarina']);
+    await db.query(`update public.companies set monthly_lead_limit = 2 where id = $1`, [company.id]);
+    const customer = await newUser(true);
+    const jobOne = await postJob(customer);
+    const jobTwo = await postJob(customer);
+    const jobThree = await postJob(customer);
+
+    await accept(company.owner, jobOne);
+    await quoteAndAccept(company.owner, customer, jobOne); // 1 lead, 0 waiting
+    await accept(company.owner, jobTwo); // 1 lead, 1 waiting
+    await rejects(accept(company.owner, jobThree), /LEAD_LIMIT_REACHED/);
+
+    // Last month's leads do not count against this month.
+    await db.query(`update public.leads set created_at = now() - interval '40 days' where job_id = $1`, [jobOne]);
+    await accept(company.owner, jobThree);
+  });
+
+  it('leaves leads marked "not charged" out of the limit', async () => {
+    const company = await newCompany(['plumbing'], ['Casuarina']);
+    await db.query(`update public.companies set monthly_lead_limit = 1 where id = $1`, [company.id]);
+    const customer = await newUser(true);
+    const jobOne = await postJob(customer);
+    const jobTwo = await postJob(customer);
+    await accept(company.owner, jobOne);
+    await quoteAndAccept(company.owner, customer, jobOne);
+    await rejects(accept(company.owner, jobTwo), /LEAD_LIMIT_REACHED/);
+
+    await db.query(`update public.leads set counted = false where job_id = $1`, [jobOne]);
+    await accept(company.owner, jobTwo);
   });
 });
 
@@ -211,6 +272,7 @@ describe('quotes, contact details and chat', () => {
 
     await as(company.owner, (q) => q.query(`select public.accept_job($1)`, [job]));
     assert.equal(await count(company.owner, contact, [job]), 0, 'address still hidden after accepting');
+    assert.equal(await leadCount(job), 0, 'no lead yet');
 
     await rejects(as(company.owner, (q) => q.query(`select public.send_quote($1, 15000, null, now() - interval '1 day')`, [job])), /INVALID_TIME/);
     await rejects(as(company.owner, (q) => q.query(`select public.send_quote($1, 5, null, now() + interval '2 days')`, [job])), /INVALID_INPUT/);
@@ -236,12 +298,13 @@ describe('quotes, contact details and chat', () => {
     );
     assert.deepEqual(scheduled.rows, [{ status: 'scheduled', ok: true }]);
     assert.equal(await count(company.owner, contact, [job]), 1, 'address visible once quote accepted');
+    assert.equal(await leadCount(job), 1, 'lead logged with the accepted quote');
     assert.equal(await count(rival.owner, contact, [job]), 0);
 
     await rejects(as(customer, (q) => q.query(`select public.respond_to_quote($1, false)`, [quoteId])), /QUOTE_NOT_OPEN/);
     await as(company.owner, (q) => q.query(`select public.complete_job($1)`, [job]));
     assert.equal((await db.query<{ status: string }>(`select status from public.jobs where id = $1`, [job])).rows[0]!.status, 'completed');
-    assert.equal((await db.query(`select 1 from public.leads where job_id = $1`, [job])).rows.length, 1, 'still one lead');
+    assert.equal(await leadCount(job), 1, 'still one lead');
   });
 
   it('lets a company re-quote after a decline', async () => {
@@ -279,6 +342,24 @@ describe('quotes, contact details and chat', () => {
     assert.equal(await count(rival.owner, sql, [job]), 0);
   });
 
+  it('only lets a chat message point at a photo in the chat folder of its own job', async () => {
+    const customer = await newUser(true);
+    const job = await postJob(customer);
+    const otherJob = await postJob(customer);
+    const company = await newCompany(['plumbing'], ['Casuarina']);
+    await accept(company.owner, job);
+    await accept(company.owner, otherJob);
+    const sendPhoto = (path: string) =>
+      as(customer, (q) => q.query(`insert into public.messages (job_id, sender_id, media_path) values ($1, $2, $3)`, [job, customer, path]));
+
+    await sendPhoto(`${job}/${customer}/photo-1.jpg`);
+    await rejects(sendPhoto(`${otherJob}/${customer}/photo-1.jpg`), /row-level security/); // another chat
+    await rejects(sendPhoto(`${customer}/${job}/photo-1.jpg`), /row-level security/); // job-media layout
+    await rejects(sendPhoto(`${job}/${customer}/../../${otherJob}/${customer}/x.jpg`), /row-level security/);
+    await rejects(sendPhoto(`${job}/photo-1.jpg`), /row-level security/);
+    await rejects(sendPhoto(`x/${job}/${customer}/photo-1.jpg`), /row-level security/);
+  });
+
   it('applies the same rules to stored photos', async () => {
     const customer = await newUser(true);
     const outsider = await newUser(true);
@@ -296,6 +377,13 @@ describe('quotes, contact details and chat', () => {
     assert.equal(await visible(company.owner, photo), 1, 'matching company sees photos before deciding');
     assert.equal(await visible(wrongTrade.owner, photo), 0);
     assert.equal(await visible(outsider, photo), 0);
+
+    // A file in someone else's folder that merely names a visible job id stays hidden.
+    const planted = `${outsider}/${job}/secret.jpg`;
+    await upload(outsider, 'job-media', planted);
+    assert.equal(await visible(outsider, planted), 1, 'the uploader still sees their own file');
+    assert.equal(await visible(company.owner, planted), 0);
+    assert.equal(await visible(customer, planted), 0);
 
     const chatPhoto = `${job}/${customer}/b.jpg`;
     await rejects(upload(customer, 'chat-media', chatPhoto), /row-level security/); // chat not open yet
@@ -320,7 +408,8 @@ describe('admin', () => {
 
     const customer = await newUser(true);
     const job = await postJob(customer);
-    await as(company.owner, (q) => q.query(`select public.accept_job($1)`, [job]));
+    await accept(company.owner, job);
+    await quoteAndAccept(company.owner, customer, job);
     const summary = await as(admin, async (q) =>
       (await q.query<{ leads_total: string; leads_counted: string }>(
         `select leads_total::text, leads_counted::text from public.admin_lead_summary(current_date - 1, current_date + 1) where company_id = $1`,

@@ -10,7 +10,7 @@ import { usePaginatedList } from '@/hooks/usePaginatedList';
 import { useSession } from '@/hooks/useSession';
 import { countLeadsThisMonth, listLeads } from '@/services/company';
 import { toFriendlyMessage } from '@/services/errors';
-import { leadUsage } from '@/services/logic/leads';
+import { leadUsage, leadUsageSummary, type LeadCounts } from '@/services/logic/leads';
 import { formatDateTime } from '@/services/logic/time';
 import type { LeadSummary } from '@/types';
 
@@ -30,7 +30,7 @@ function LeadRow({ lead }: { lead: LeadSummary }) {
 export function DashboardScreen() {
   const { company, signOut } = useSession();
   const companyId = company?.id;
-  const [usedThisMonth, setUsedThisMonth] = useState<number | null>(null);
+  const [counts, setCounts] = useState<LeadCounts | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPage = useCallback(
@@ -45,35 +45,32 @@ export function DashboardScreen() {
       refresh();
       if (!companyId) return;
       countLeadsThisMonth(companyId)
-        .then((count) => {
-          setUsedThisMonth(count);
+        .then((next) => {
+          setCounts(next);
           setError(null);
         })
         .catch((caught: unknown) => setError(toFriendlyMessage(caught)));
     }, [companyId, refresh]),
   );
 
-  const usage = leadUsage(usedThisMonth ?? 0, company?.monthly_lead_limit ?? 0);
+  const usage = leadUsage(counts ?? { leads: 0, waiting: 0 }, company?.monthly_lead_limit ?? 0);
 
   const header = (
     <View style={styles.header}>
       <Card>
-        <SectionTitle>Leads this month</SectionTitle>
-        <Text style={styles.bigNumber}>
-          {usedThisMonth === null ? '–' : usage.used}
-          <Text style={styles.muted}> of {usage.limit}</Text>
-        </Text>
-        <Text style={usage.atLimit ? styles.warning : styles.muted}>
-          {usage.atLimit
-            ? 'Monthly limit reached. Contact us to raise it.'
-            : `${usage.remaining} left before your monthly limit.`}
-        </Text>
+        <SectionTitle>This month</SectionTitle>
+        <Text style={styles.summary}>{counts === null ? '–' : leadUsageSummary(usage)}</Text>
+        {usage.atLimit && counts !== null ? (
+          <Text style={styles.warning}>Monthly limit reached. Contact us to raise it.</Text>
+        ) : null}
       </Card>
       <Card>
         <SectionTitle>Billing</SectionTitle>
         <Text style={styles.body}>Plan: pay per lead</Text>
         <Text style={styles.muted}>
-          A lead is logged when you accept a job. Invoices come from the Find a Fixer team.
+          A lead is logged when the customer accepts your quote. Jobs you have accepted that
+          are still waiting on a quote also count toward your monthly limit. Invoices come from
+          the Find a Fixer team.
         </Text>
       </Card>
       {error ? <Notice tone="error" message={error} /> : null}
@@ -93,14 +90,14 @@ export function DashboardScreen() {
       header={header}
       renderItem={(lead) => <LeadRow lead={lead} />}
       emptyTitle="No leads yet"
-      emptyMessage="Every job you accept is listed here."
+      emptyMessage="Every job where the customer accepts your quote is listed here."
     />
   );
 }
 
 const styles = StyleSheet.create({
   header: { gap: spacing.md },
-  bigNumber: { color: colours.text, fontSize: 44, fontWeight: '900' },
+  summary: { color: colours.text, fontSize: fontSize.large, fontWeight: '700', lineHeight: 28 },
   body: { color: colours.text, fontSize: fontSize.body },
   muted: { color: colours.textMuted, fontSize: fontSize.small, fontWeight: '400', lineHeight: 20 },
   warning: { color: colours.accent, fontSize: fontSize.small, fontWeight: '700' },

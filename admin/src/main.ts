@@ -229,7 +229,7 @@ function renderLeads(container: HTMLElement, month = currentDarwinMonth()): void
     container,
     el('h2', {}, 'Leads'),
     el('div', { class: 'row' }, el('label', {}, 'Billing month (Darwin time)', monthInput), exportButton),
-    el('p', { class: 'muted' }, 'A lead is logged the moment a company accepts a job. "Leads to invoice" leaves out any you have marked as not charged.'),
+    el('p', { class: 'muted' }, 'A lead is logged the moment the customer accepts a quote. "Leads to invoice" leaves out any you have marked as not charged.'),
     message,
     table(['Company', 'Leads logged', 'Leads to invoice'], summaryBody, 1),
     el('h2', {}, 'Every lead this month'),

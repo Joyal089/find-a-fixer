@@ -144,7 +144,7 @@ function RegistrationForm() {
 export function CompanyProfileScreen() {
   const { loading, userId, company } = useSession();
   if (loading) return <LoadingView />;
-  if (!userId) return <Redirect href="/company-login" />;
+  if (!userId) return <Redirect href="/" />;
   return company ? <CompanyDetails company={company} /> : <RegistrationForm />;
 }
 

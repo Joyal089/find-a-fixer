@@ -8,7 +8,8 @@ import { useSession } from '@/hooks/useSession';
 export default function CompanyLayout() {
   const { loading, userId, company } = useSession();
   if (loading) return <LoadingView />;
-  if (!userId) return <Redirect href="/company-login" />;
+  // Signed out (including after tapping Sign out): back to the welcome screen.
+  if (!userId) return <Redirect href="/" />;
   if (!company) return <Redirect href="/company-profile" />;
 
   return (
