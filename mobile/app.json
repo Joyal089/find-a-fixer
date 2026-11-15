@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Find a Fixer",
+    "slug": "find-a-fixer",
+    "scheme": "findafixer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "au.com.findafixer.app"
+    },
+    "android": {
+      "package": "au.com.findafixer.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#000000",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Find a Fixer uses your photos so you can show a tradie what needs fixing.",
+          "cameraPermission": "Find a Fixer uses your camera so you can show a tradie what needs fixing."
+        }
+      ],
+      "expo-notifications"
+    ]
+  }
+}
