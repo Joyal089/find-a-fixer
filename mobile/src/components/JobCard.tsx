@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { tradeLabel, urgencyLabel } from '@/constants/catalogue';
 import { colours, fontSize, radius, spacing } from '@/constants/theme';
@@ -24,17 +24,22 @@ export function JobCard({ job, onPress }: JobCardProps) {
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
-      <View style={styles.topRow}>
-        <Text style={styles.trade}>{tradeLabel(job.category)}</Text>
-        <Text style={styles.status}>{STATUS_LABELS[job.status]}</Text>
+      {job.thumbnailUrl ? (
+        <Image source={{ uri: job.thumbnailUrl }} style={styles.thumbnail} accessible={false} />
+      ) : null}
+      <View style={styles.details}>
+        <View style={styles.topRow}>
+          <Text style={styles.trade}>{tradeLabel(job.category)}</Text>
+          <Text style={styles.status}>{STATUS_LABELS[job.status]}</Text>
+        </View>
+        <Text style={styles.title} numberOfLines={2}>
+          {job.title}
+        </Text>
+        <Text style={styles.meta}>
+          {job.suburb} · {urgencyLabel(job.urgency)} · {mediaLabel(job.mediaCount)}
+        </Text>
+        <Text style={styles.meta}>Posted {formatDateTime(job.created_at)}</Text>
       </View>
-      <Text style={styles.title} numberOfLines={2}>
-        {job.title}
-      </Text>
-      <Text style={styles.meta}>
-        {job.suburb} · {urgencyLabel(job.urgency)} · {mediaLabel(job.mediaCount)}
-      </Text>
-      <Text style={styles.meta}>Posted {formatDateTime(job.created_at)}</Text>
     </Pressable>
   );
 }
@@ -46,8 +51,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.md,
-    gap: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
   },
+  thumbnail: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.sm,
+    backgroundColor: colours.surfaceRaised,
+  },
+  details: { flex: 1, gap: spacing.xs },
   pressed: { backgroundColor: colours.surfaceRaised },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   trade: { color: colours.accent, fontSize: fontSize.small, fontWeight: '700' },

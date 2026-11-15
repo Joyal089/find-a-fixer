@@ -144,6 +144,20 @@ interface SeedJob {
   urgency: 'emergency' | 'this_week' | 'flexible';
   /** File names in supabase/seed-photos. */
   photos: string[];
+  /** How long ago the job was posted. Spread out so the demo customers start well under the 5-jobs-an-hour limit. */
+  postedHoursAgo: number;
+}
+
+const hoursAgo = (hours: number): string => new Date(Date.now() - hours * 3_600_000).toISOString();
+
+// Darwin is UTC+9:30 all year (no daylight saving).
+const DARWIN_OFFSET_MS = 9.5 * 3_600_000;
+
+/** A round hour in Darwin time, some days ahead: darwinTime(2, 9) is 9:00 am the day after tomorrow. */
+function darwinTime(daysAhead: number, hour: number): string {
+  const local = new Date(Date.now() + DARWIN_OFFSET_MS);
+  const localMidnightUtc = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + daysAhead, hour);
+  return new Date(localMidnightUtc - DARWIN_OFFSET_MS).toISOString();
 }
 
 /** Uploads the job's photos to <customer id>/<job id>/ and records them, as post_job does. */
@@ -177,6 +191,7 @@ async function createJob(job: SeedJob, phone: string): Promise<string> {
         description: job.description,
         suburb: job.suburb,
         urgency: job.urgency,
+        created_at: hoursAgo(job.postedHoursAgo),
       })
       .select('id')
       .single(),
@@ -192,14 +207,12 @@ async function createJob(job: SeedJob, phone: string): Promise<string> {
 }
 
 /** Mirrors accept_job(): the job moves to accepted. No lead yet. */
-async function acceptAs(companyId: string, jobId: string): Promise<void> {
+async function acceptAs(companyId: string, jobId: string, acceptedHoursAgo: number): Promise<void> {
   must(
-    await db.from('jobs').update({ status: 'accepted', company_id: companyId, accepted_at: new Date().toISOString() }).eq('id', jobId).select('id'),
+    await db.from('jobs').update({ status: 'accepted', company_id: companyId, accepted_at: hoursAgo(acceptedHoursAgo) }).eq('id', jobId).select('id'),
     'accept job',
   );
 }
-
-const daysFromNow = (days: number): string => new Date(Date.now() + days * 86_400_000).toISOString();
 
 async function main(): Promise<void> {
   await removeOldDemoAccounts();
@@ -213,28 +226,28 @@ async function main(): Promise<void> {
   const [phoneOne, phoneTwo] = CUSTOMER_PHONES;
 
   // Three open jobs for the feeds.
-  await createJob({ customerId: customerOne, category: 'electrical', title: 'Power point not working', description: 'Two power points in the kitchen stopped working after the storm.', suburb: 'Leanyer', address: '4 Demo Street', urgency: 'this_week', photos: ['power-point-1.jpg'] }, phoneOne);
-  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency', photos: ['split-system-1.jpg'] }, phoneTwo);
-  await createJob({ customerId: customerTwo, category: 'carpentry', title: 'Sticking front door', description: 'Front door has swollen in the wet season and will not close properly.', suburb: 'Parap', address: '21 Example Road', urgency: 'flexible', photos: ['front-door-1.jpg'] }, phoneTwo);
+  await createJob({ customerId: customerOne, category: 'electrical', title: 'Power point not working', description: 'Two power points in the kitchen stopped working after the storm.', suburb: 'Leanyer', address: '4 Demo Street', urgency: 'this_week', photos: ['power-point-1.jpg'], postedHoursAgo: 2 }, phoneOne);
+  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency', photos: ['split-system-1.jpg'], postedHoursAgo: 26 }, phoneTwo);
+  await createJob({ customerId: customerTwo, category: 'carpentry', title: 'Sticking front door', description: 'Front door has swollen in the wet season and will not close properly.', suburb: 'Parap', address: '21 Example Road', urgency: 'flexible', photos: ['front-door-1.jpg'], postedHoursAgo: 72 }, phoneTwo);
 
   // One accepted job with a quote waiting for the customer.
-  const tapJob = await createJob({ customerId: customerOne, category: 'plumbing', title: 'Leaking kitchen tap', description: 'Kitchen mixer tap drips constantly and the cupboard underneath is getting wet.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'this_week', photos: ['kitchen-tap-1.jpg', 'kitchen-tap-2.jpg'] }, phoneOne);
-  await acceptAs(plumbingId, tapJob);
-  must(await db.from('quotes').insert({ job_id: tapJob, company_id: plumbingId, amount_cents: 18000, notes: 'New mixer cartridge and labour. About an hour on site.', proposed_time: daysFromNow(2) }).select('id'), 'insert quote');
+  const tapJob = await createJob({ customerId: customerOne, category: 'plumbing', title: 'Leaking kitchen tap', description: 'Kitchen mixer tap drips constantly and the cupboard underneath is getting wet.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'this_week', photos: ['kitchen-tap-1.jpg', 'kitchen-tap-2.jpg'], postedHoursAgo: 50 }, phoneOne);
+  await acceptAs(plumbingId, tapJob, 46);
+  must(await db.from('quotes').insert({ job_id: tapJob, company_id: plumbingId, amount_cents: 18000, notes: 'New mixer cartridge and labour. About an hour on site.', proposed_time: darwinTime(2, 9), created_at: hoursAgo(22) }).select('id'), 'insert quote');
 
   // One scheduled job with an accepted quote and a short chat.
-  const fanJob = await createJob({ customerId: customerOne, category: 'electrical', title: 'Install ceiling fan', description: 'Replace an old ceiling fan in the lounge with a new one I have already bought.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'flexible', photos: ['ceiling-fan-1.jpg'] }, phoneOne);
-  await acceptAs(integratorId, fanJob);
-  const fanTime = daysFromNow(3);
-  must(await db.from('quotes').insert({ job_id: fanJob, company_id: integratorId, amount_cents: 22000, notes: 'Supply of fan by customer. Includes removal of the old unit.', proposed_time: fanTime, status: 'accepted', responded_at: new Date().toISOString() }).select('id'), 'insert accepted quote');
+  const fanJob = await createJob({ customerId: customerOne, category: 'electrical', title: 'Install ceiling fan', description: 'Replace an old ceiling fan in the lounge with a new one I have already bought.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'flexible', photos: ['ceiling-fan-1.jpg'], postedHoursAgo: 98 }, phoneOne);
+  await acceptAs(integratorId, fanJob, 94);
+  const fanTime = darwinTime(3, 9);
+  must(await db.from('quotes').insert({ job_id: fanJob, company_id: integratorId, amount_cents: 22000, notes: 'Supply of fan by customer. Includes removal of the old unit.', proposed_time: fanTime, status: 'accepted', created_at: hoursAgo(74), responded_at: hoursAgo(49) }).select('id'), 'insert accepted quote');
   must(await db.from('jobs').update({ status: 'scheduled', scheduled_at: fanTime }).eq('id', fanJob).select('id'), 'schedule job');
   // Mirrors respond_to_quote(): the lead is logged when the customer accepts the quote.
-  must(await db.from('leads').insert({ job_id: fanJob, company_id: integratorId }).select('id'), 'log lead');
+  must(await db.from('leads').insert({ job_id: fanJob, company_id: integratorId, created_at: hoursAgo(49) }).select('id'), 'log lead');
   const integratorOwner = must(await db.from('companies').select('owner_id').eq('id', integratorId).single(), 'find owner') as { owner_id: string };
   must(
     await db.from('messages').insert([
-      { job_id: fanJob, sender_id: customerOne, body: 'Thanks for the quote. Is there parking out the front?', created_at: new Date(Date.now() - 120_000).toISOString() },
-      { job_id: fanJob, sender_id: integratorOwner.owner_id, body: 'No worries, street parking is fine. See you then.', created_at: new Date(Date.now() - 60_000).toISOString() },
+      { job_id: fanJob, sender_id: customerOne, body: 'Thanks for the quote. Is there parking out the front?', created_at: hoursAgo(48) },
+      { job_id: fanJob, sender_id: integratorOwner.owner_id, body: 'No worries, street parking is fine. See you then.', created_at: hoursAgo(47.5) },
     ]).select('id'),
     'insert messages',
   );

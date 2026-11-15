@@ -46,6 +46,8 @@ export interface Job {
 /** A job row as listed in feeds, with how many photos/videos are attached. */
 export interface JobSummary extends Job {
   mediaCount: number;
+  /** Signed link to the first photo, if the job has one. Valid for an hour. */
+  thumbnailUrl: string | null;
 }
 
 export interface JobContact {

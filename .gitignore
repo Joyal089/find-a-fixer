@@ -9,3 +9,6 @@ web-build/
 .DS_Store
 .vercel
 supabase/.temp/
+# Local only: walkthrough screenshots and Claude's preview config.
+demo-screenshots/
+.claude/

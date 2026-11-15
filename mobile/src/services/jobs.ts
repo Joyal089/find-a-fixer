@@ -16,19 +16,42 @@ import { throwIfError } from './errors';
 import { JOB_MEDIA_BUCKET, signUrls, uploadMedia } from './media';
 import { supabase } from './supabase';
 
-type JobRowWithCount = Job & { job_media: { count: number }[] };
+type JobRowWithMedia = Job & {
+  job_media: { storage_path: string; media_type: MediaType; created_at: string }[];
+};
 
-const toSummary = ({ job_media, ...job }: JobRowWithCount): JobSummary => ({
-  ...job,
-  mediaCount: job_media[0]?.count ?? 0,
-});
+const firstPhotoPath = (row: JobRowWithMedia): string | null =>
+  row.job_media
+    .filter((item) => item.media_type === 'photo')
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.storage_path ?? null;
+
+/**
+ * Turns listed rows into summaries with a thumbnail link for each job's first photo.
+ * All the links for a page are signed in one request. If signing fails the list still
+ * loads, just without thumbnails.
+ */
+async function toSummaries(rows: JobRowWithMedia[]): Promise<JobSummary[]> {
+  const paths = rows.map(firstPhotoPath);
+  const urls = await signUrls(
+    JOB_MEDIA_BUCKET,
+    paths.filter((path): path is string => path !== null),
+  ).catch(() => new Map<string, string>());
+  return rows.map(({ job_media, ...job }, index) => {
+    const path = paths[index];
+    return {
+      ...job,
+      mediaCount: job_media.length,
+      thumbnailUrl: path ? (urls.get(path) ?? null) : null,
+    };
+  });
+}
 
 const pageRange = (page: number): [number, number] => [
   page * PAGE_SIZE,
   page * PAGE_SIZE + PAGE_SIZE - 1,
 ];
 
-const SUMMARY_COLUMNS = '*, job_media(count)';
+const SUMMARY_COLUMNS = '*, job_media(storage_path, media_type, created_at)';
 
 /**
  * Open jobs for the signed-in company. Trade and area filtering happens in the database
@@ -43,7 +66,7 @@ export async function listJobFeed(page: number): Promise<JobSummary[]> {
     .order('created_at', { ascending: false })
     .range(from, to);
   throwIfError(error);
-  return ((data ?? []) as JobRowWithCount[]).map(toSummary);
+  return toSummaries((data ?? []) as unknown as JobRowWithMedia[]);
 }
 
 export async function listCustomerJobs(customerId: string, page: number): Promise<JobSummary[]> {
@@ -55,7 +78,7 @@ export async function listCustomerJobs(customerId: string, page: number): Promis
     .order('created_at', { ascending: false })
     .range(from, to);
   throwIfError(error);
-  return ((data ?? []) as JobRowWithCount[]).map(toSummary);
+  return toSummaries((data ?? []) as unknown as JobRowWithMedia[]);
 }
 
 export async function listCompanyJobs(companyId: string, page: number): Promise<JobSummary[]> {
@@ -67,7 +90,7 @@ export async function listCompanyJobs(companyId: string, page: number): Promise<
     .order('created_at', { ascending: false })
     .range(from, to);
   throwIfError(error);
-  return ((data ?? []) as JobRowWithCount[]).map(toSummary);
+  return toSummaries((data ?? []) as unknown as JobRowWithMedia[]);
 }
 
 export async function getJob(jobId: string): Promise<Job | null> {
