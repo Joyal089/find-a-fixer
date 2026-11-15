@@ -214,7 +214,7 @@ async function main(): Promise<void> {
 
   // Three open jobs for the feeds.
   await createJob({ customerId: customerOne, category: 'electrical', title: 'Power point not working', description: 'Two power points in the kitchen stopped working after the storm.', suburb: 'Leanyer', address: '4 Demo Street', urgency: 'this_week', photos: ['power-point-1.jpg'] }, phoneOne);
-  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency', photos: ['split-system-1.jpg', 'split-system-2.jpg'] }, phoneTwo);
+  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency', photos: ['split-system-1.jpg'] }, phoneTwo);
   await createJob({ customerId: customerTwo, category: 'carpentry', title: 'Sticking front door', description: 'Front door has swollen in the wet season and will not close properly.', suburb: 'Parap', address: '21 Example Road', urgency: 'flexible', photos: ['front-door-1.jpg'] }, phoneTwo);
 
   // One accepted job with a quote waiting for the customer.
