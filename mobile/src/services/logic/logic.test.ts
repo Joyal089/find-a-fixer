@@ -1,5 +1,5 @@
 import { availableActions, stepIndex } from './jobStatus';
-import { leadUsage } from './leads';
+import { leadUsage, leadUsageSummary } from './leads';
 import { formatAud, parseDollarsToCents } from './money';
 import { maskPhone, normaliseAuMobile } from './phone';
 import {
@@ -75,9 +75,25 @@ describe('quote amounts', () => {
 
 describe('lead usage', () => {
   it('counts down to the monthly limit and never goes negative', () => {
-    expect(leadUsage(3, 20)).toEqual({ used: 3, limit: 20, remaining: 17, atLimit: false });
-    expect(leadUsage(20, 20).atLimit).toBe(true);
-    expect(leadUsage(25, 20).remaining).toBe(0);
+    expect(leadUsage({ leads: 3, waiting: 1 }, 20)).toEqual({
+      leads: 3,
+      waiting: 1,
+      used: 4,
+      limit: 20,
+      remaining: 16,
+      atLimit: false,
+    });
+    expect(leadUsage({ leads: 18, waiting: 2 }, 20).atLimit).toBe(true);
+    expect(leadUsage({ leads: 25, waiting: 0 }, 20).remaining).toBe(0);
+  });
+
+  it('summarises leads and waiting jobs separately', () => {
+    expect(leadUsageSummary(leadUsage({ leads: 3, waiting: 1 }, 20))).toBe(
+      '3 leads · 1 waiting on a quote · 16 left of 20',
+    );
+    expect(leadUsageSummary(leadUsage({ leads: 1, waiting: 0 }, 20))).toBe(
+      '1 lead · 0 waiting on a quote · 19 left of 20',
+    );
   });
 });
 

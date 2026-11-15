@@ -9,7 +9,9 @@ export default function CustomerLayout() {
   const { loading, userId, phoneVerified, profile } = useSession();
   if (loading) return <LoadingView />;
   if (profile?.role === 'company') return <Redirect href="/company/feed" />;
-  if (!userId || !phoneVerified) return <Redirect href="/verify" />;
+  // Signed out (including after tapping Sign out): back to the welcome screen.
+  if (!userId) return <Redirect href="/" />;
+  if (!phoneVerified) return <Redirect href="/verify" />;
 
   return (
     <Tabs screenOptions={tabScreenOptions}>

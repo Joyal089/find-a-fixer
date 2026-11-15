@@ -2,6 +2,7 @@ import { PAGE_SIZE } from '@/constants/catalogue';
 import type { Company, CompanyRegistration, LeadSummary, Profile } from '@/types';
 
 import { throwIfError } from './errors';
+import type { LeadCounts } from './logic/leads';
 import { darwinMonthStartIso } from './logic/time';
 import { supabase } from './supabase';
 
@@ -43,7 +44,7 @@ export async function registerCompany(input: CompanyRegistration): Promise<void>
  * What counts toward the monthly limit, matching accept_job on the server: charged leads
  * this Darwin calendar month, plus accepted jobs still waiting on a quote decision.
  */
-export async function countLeadsThisMonth(companyId: string): Promise<number> {
+export async function countLeadsThisMonth(companyId: string): Promise<LeadCounts> {
   const [leads, waiting] = await Promise.all([
     supabase
       .from('leads')
@@ -59,7 +60,7 @@ export async function countLeadsThisMonth(companyId: string): Promise<number> {
   ]);
   throwIfError(leads.error);
   throwIfError(waiting.error);
-  return (leads.count ?? 0) + (waiting.count ?? 0);
+  return { leads: leads.count ?? 0, waiting: waiting.count ?? 0 };
 }
 
 type LeadRow = {

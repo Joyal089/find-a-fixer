@@ -7,6 +7,9 @@
 //   cd supabase && cp .env.example .env   (fill it in)
 //   npm run seed
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const { SUPABASE_URL, SUPABASE_SECRET_KEY, SEED_PASSWORD } = process.env;
 if (!SUPABASE_URL || !SUPABASE_SECRET_KEY || !SEED_PASSWORD || SEED_PASSWORD.length < 10) {
@@ -19,6 +22,12 @@ const db: SupabaseClient = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
 });
 
 const ADMIN_EMAIL = 'admin@findafixer.test';
+
+// Job photos live in supabase/seed-photos (JPEG). Each job lists the files it wants; any
+// that are missing are skipped with a note, so the seed still works without them.
+const PHOTO_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'seed-photos');
+const JOB_MEDIA_BUCKET = 'job-media';
+const missingPhotos: string[] = [];
 
 // Placeholder details: edit the trades, areas and licence numbers to match the real
 // companies before showing this to them.
@@ -61,12 +70,25 @@ function must<R extends Result>(result: R, step: string): SuccessData<R> {
   return result.data as SuccessData<R>;
 }
 
+/** Deletes every job photo a demo customer uploaded: <customer id>/<job id>/<file>. */
+async function removeJobPhotos(customerId: string): Promise<void> {
+  const bucket = db.storage.from(JOB_MEDIA_BUCKET);
+  const jobFolders = must(await bucket.list(customerId, { limit: 1000 }), 'list photo folders');
+  for (const folder of jobFolders) {
+    const prefix = `${customerId}/${folder.name}`;
+    const files = must(await bucket.list(prefix, { limit: 1000 }), 'list photos');
+    if (files.length === 0) continue;
+    must(await bucket.remove(files.map((file) => `${prefix}/${file.name}`)), 'remove old photos');
+  }
+}
+
 async function removeOldDemoAccounts(): Promise<void> {
   const emails = new Set<string>([ADMIN_EMAIL, ...COMPANIES.map((company) => company.email)]);
   const phones = new Set<string>(CUSTOMER_PHONES);
   const { users } = must(await db.auth.admin.listUsers({ page: 1, perPage: 1000 }), 'list users');
   for (const user of users) {
     if ((user.email && emails.has(user.email)) || (user.phone && phones.has(user.phone))) {
+      if (user.phone && phones.has(user.phone)) await removeJobPhotos(user.id);
       must(await db.auth.admin.deleteUser(user.id), `delete ${user.email ?? user.phone}`);
     }
   }
@@ -120,6 +142,28 @@ interface SeedJob {
   suburb: string;
   address: string;
   urgency: 'emergency' | 'this_week' | 'flexible';
+  /** File names in supabase/seed-photos. */
+  photos: string[];
+}
+
+/** Uploads the job's photos to <customer id>/<job id>/ and records them, as post_job does. */
+async function addPhotos(job: SeedJob, jobId: string): Promise<void> {
+  for (const [index, fileName] of job.photos.entries()) {
+    const file = join(PHOTO_DIR, fileName);
+    if (!existsSync(file)) {
+      missingPhotos.push(fileName);
+      continue;
+    }
+    const path = `${job.customerId}/${jobId}/photo-${index + 1}.jpg`;
+    must(
+      await db.storage.from(JOB_MEDIA_BUCKET).upload(path, readFileSync(file), { contentType: 'image/jpeg', upsert: true }),
+      `upload ${fileName}`,
+    );
+    must(
+      await db.from('job_media').insert({ job_id: jobId, storage_path: path, media_type: 'photo' }).select('id'),
+      `record ${fileName}`,
+    );
+  }
 }
 
 async function createJob(job: SeedJob, phone: string): Promise<string> {
@@ -143,6 +187,7 @@ async function createJob(job: SeedJob, phone: string): Promise<string> {
     await db.from('job_private').insert({ job_id: jobId, address: job.address, contact_phone: `+${phone}` }).select('job_id'),
     `insert address for ${job.title}`,
   );
+  await addPhotos(job, jobId);
   return jobId;
 }
 
@@ -168,17 +213,17 @@ async function main(): Promise<void> {
   const [phoneOne, phoneTwo] = CUSTOMER_PHONES;
 
   // Three open jobs for the feeds.
-  await createJob({ customerId: customerOne, category: 'electrical', title: 'Power point not working', description: 'Two power points in the kitchen stopped working after the storm.', suburb: 'Leanyer', address: '4 Demo Street', urgency: 'this_week' }, phoneOne);
-  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency' }, phoneTwo);
-  await createJob({ customerId: customerTwo, category: 'carpentry', title: 'Sticking front door', description: 'Front door has swollen in the wet season and will not close properly.', suburb: 'Parap', address: '21 Example Road', urgency: 'flexible' }, phoneTwo);
+  await createJob({ customerId: customerOne, category: 'electrical', title: 'Power point not working', description: 'Two power points in the kitchen stopped working after the storm.', suburb: 'Leanyer', address: '4 Demo Street', urgency: 'this_week', photos: ['power-point-1.jpg'] }, phoneOne);
+  await createJob({ customerId: customerTwo, category: 'air_conditioning', title: 'Split system leaking water', description: 'Bedroom split system drips water inside when it runs for more than an hour.', suburb: 'Nightcliff', address: '9 Sample Avenue', urgency: 'emergency', photos: ['split-system-1.jpg', 'split-system-2.jpg'] }, phoneTwo);
+  await createJob({ customerId: customerTwo, category: 'carpentry', title: 'Sticking front door', description: 'Front door has swollen in the wet season and will not close properly.', suburb: 'Parap', address: '21 Example Road', urgency: 'flexible', photos: ['front-door-1.jpg'] }, phoneTwo);
 
   // One accepted job with a quote waiting for the customer.
-  const tapJob = await createJob({ customerId: customerOne, category: 'plumbing', title: 'Leaking kitchen tap', description: 'Kitchen mixer tap drips constantly and the cupboard underneath is getting wet.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'this_week' }, phoneOne);
+  const tapJob = await createJob({ customerId: customerOne, category: 'plumbing', title: 'Leaking kitchen tap', description: 'Kitchen mixer tap drips constantly and the cupboard underneath is getting wet.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'this_week', photos: ['kitchen-tap-1.jpg', 'kitchen-tap-2.jpg'] }, phoneOne);
   await acceptAs(plumbingId, tapJob);
   must(await db.from('quotes').insert({ job_id: tapJob, company_id: plumbingId, amount_cents: 18000, notes: 'New mixer cartridge and labour. About an hour on site.', proposed_time: daysFromNow(2) }).select('id'), 'insert quote');
 
   // One scheduled job with an accepted quote and a short chat.
-  const fanJob = await createJob({ customerId: customerOne, category: 'electrical', title: 'Install ceiling fan', description: 'Replace an old ceiling fan in the lounge with a new one I have already bought.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'flexible' }, phoneOne);
+  const fanJob = await createJob({ customerId: customerOne, category: 'electrical', title: 'Install ceiling fan', description: 'Replace an old ceiling fan in the lounge with a new one I have already bought.', suburb: 'Casuarina', address: '12 Demo Street', urgency: 'flexible', photos: ['ceiling-fan-1.jpg'] }, phoneOne);
   await acceptAs(integratorId, fanJob);
   const fanTime = daysFromNow(3);
   must(await db.from('quotes').insert({ job_id: fanJob, company_id: integratorId, amount_cents: 22000, notes: 'Supply of fan by customer. Includes removal of the old unit.', proposed_time: fanTime, status: 'accepted', responded_at: new Date().toISOString() }).select('id'), 'insert accepted quote');
@@ -199,6 +244,9 @@ async function main(): Promise<void> {
   COMPANIES.forEach((company) => console.log(`  Company:   ${company.email}  (${company.name})`));
   CUSTOMER_PHONES.forEach((phone) => console.log(`  Customer:  +${phone}  (add as a test number with a fixed code)`));
   console.log('  Password for admin and company logins: the SEED_PASSWORD you set.');
+  if (missingPhotos.length > 0) {
+    console.log(`  Job photos skipped (not found in supabase/seed-photos): ${missingPhotos.join(', ')}`);
+  }
 }
 
 main().catch((error: unknown) => {

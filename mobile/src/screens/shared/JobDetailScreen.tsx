@@ -153,7 +153,7 @@ export function JobDetailScreen({ jobId }: { jobId: string }) {
       {actions.has('accept') ? (
         <ConfirmButton
           label="Accept job"
-          confirmLabel="Tap again to confirm — this uses one of your monthly leads"
+          confirmLabel="Tap again to confirm. You’re only charged if the customer accepts your quote."
           loading={busyAction === 'accept'}
           disabled={busy}
           onPress={() => void run('accept', () => acceptJob(job.id))}

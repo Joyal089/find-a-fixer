@@ -37,7 +37,9 @@ npm run seed
 
 Creates an admin, 3 approved companies, 2 customers and 5 jobs (3 open, 1 with a quote
 waiting, 1 scheduled with chat). The script prints the logins. Re-running it resets the demo.
-The company details in `scripts/seed.ts` are placeholders; edit them to match the real
+To give the seeded jobs photos, put JPEGs in `supabase/seed-photos/` using the file names
+listed against each job in `scripts/seed.ts` (for example `kitchen-tap-1.jpg`); any that are
+missing are skipped. The company details in `scripts/seed.ts` are placeholders; edit them to match the real
 companies.
 
 ### 3. The app
