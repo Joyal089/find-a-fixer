@@ -73,7 +73,9 @@ export function DashboardScreen() {
         <SectionTitle>Billing</SectionTitle>
         <Text style={styles.body}>Plan: pay per lead</Text>
         <Text style={styles.muted}>
-          A lead is logged when you accept a job. Invoices come from the Find a Fixer team.
+          A lead is logged when the customer accepts your quote. Jobs you have accepted that
+          are still waiting on a quote also count toward your monthly limit. Invoices come from
+          the Find a Fixer team.
         </Text>
       </Card>
       {error ? <Notice tone="error" message={error} /> : null}
@@ -93,7 +95,7 @@ export function DashboardScreen() {
       header={header}
       renderItem={(lead) => <LeadRow lead={lead} />}
       emptyTitle="No leads yet"
-      emptyMessage="Every job you accept is listed here."
+      emptyMessage="Every job where the customer accepts your quote is listed here."
     />
   );
 }

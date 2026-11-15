@@ -39,15 +39,27 @@ export async function registerCompany(input: CompanyRegistration): Promise<void>
   throwIfError(error);
 }
 
-/** Leads received so far this Darwin calendar month. Counted in the database. */
+/**
+ * What counts toward the monthly limit, matching accept_job on the server: charged leads
+ * this Darwin calendar month, plus accepted jobs still waiting on a quote decision.
+ */
 export async function countLeadsThisMonth(companyId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from('leads')
-    .select('id', { count: 'exact', head: true })
-    .eq('company_id', companyId)
-    .gte('created_at', darwinMonthStartIso(new Date()));
-  throwIfError(error);
-  return count ?? 0;
+  const [leads, waiting] = await Promise.all([
+    supabase
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('counted', true)
+      .gte('created_at', darwinMonthStartIso(new Date())),
+    supabase
+      .from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('status', 'accepted'),
+  ]);
+  throwIfError(leads.error);
+  throwIfError(waiting.error);
+  return (leads.count ?? 0) + (waiting.count ?? 0);
 }
 
 type LeadRow = {

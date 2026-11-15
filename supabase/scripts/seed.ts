@@ -146,13 +146,12 @@ async function createJob(job: SeedJob, phone: string): Promise<string> {
   return jobId;
 }
 
-/** Mirrors accept_job(): the job moves to accepted and the lead is logged. */
+/** Mirrors accept_job(): the job moves to accepted. No lead yet. */
 async function acceptAs(companyId: string, jobId: string): Promise<void> {
   must(
     await db.from('jobs').update({ status: 'accepted', company_id: companyId, accepted_at: new Date().toISOString() }).eq('id', jobId).select('id'),
     'accept job',
   );
-  must(await db.from('leads').insert({ job_id: jobId, company_id: companyId }).select('id'), 'log lead');
 }
 
 const daysFromNow = (days: number): string => new Date(Date.now() + days * 86_400_000).toISOString();
@@ -184,6 +183,8 @@ async function main(): Promise<void> {
   const fanTime = daysFromNow(3);
   must(await db.from('quotes').insert({ job_id: fanJob, company_id: integratorId, amount_cents: 22000, notes: 'Supply of fan by customer. Includes removal of the old unit.', proposed_time: fanTime, status: 'accepted', responded_at: new Date().toISOString() }).select('id'), 'insert accepted quote');
   must(await db.from('jobs').update({ status: 'scheduled', scheduled_at: fanTime }).eq('id', fanJob).select('id'), 'schedule job');
+  // Mirrors respond_to_quote(): the lead is logged when the customer accepts the quote.
+  must(await db.from('leads').insert({ job_id: fanJob, company_id: integratorId }).select('id'), 'log lead');
   const integratorOwner = must(await db.from('companies').select('owner_id').eq('id', integratorId).single(), 'find owner') as { owner_id: string };
   must(
     await db.from('messages').insert([

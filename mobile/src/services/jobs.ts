@@ -151,7 +151,7 @@ async function callJobFunction(name: string, jobId: string): Promise<void> {
   throwIfError(error);
 }
 
-/** Takes the job for the signed-in company. The server logs the lead in the same step. */
+/** Takes the job for the signed-in company. The lead is logged later, when the customer accepts the quote. */
 export const acceptJob = (jobId: string): Promise<void> => callJobFunction('accept_job', jobId);
 export const declineJob = (jobId: string): Promise<void> => callJobFunction('decline_job', jobId);
 export const completeJob = (jobId: string): Promise<void> => callJobFunction('complete_job', jobId);
