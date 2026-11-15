@@ -13,6 +13,7 @@ const QUOTE_STATUS_LABELS: Record<QuoteStatus, string> = {
   accepted: 'Accepted',
   declined: 'Declined',
 };
+const AWAITING_VIEWER = 'Waiting for your answer';
 
 interface QuoteCardProps {
   quote: Quote;
@@ -21,12 +22,14 @@ interface QuoteCardProps {
 }
 
 export function QuoteCard({ quote, children }: QuoteCardProps) {
+  // Buttons are only passed in when it is the viewer's turn to answer.
+  const statusLabel = children ? AWAITING_VIEWER : QUOTE_STATUS_LABELS[quote.status];
   return (
     <Card>
       <View style={styles.row}>
         <Text style={styles.amount}>{formatAud(quote.amount_cents)}</Text>
         <Text style={[styles.status, quote.status === 'accepted' && styles.statusAccepted]}>
-          {QUOTE_STATUS_LABELS[quote.status]}
+          {statusLabel}
         </Text>
       </View>
       <Text style={styles.detail}>Proposed time: {formatDateTime(quote.proposed_time)}</Text>

@@ -85,8 +85,9 @@ begin
   insert into public.jobs (id, customer_id, category, title, description, suburb, urgency)
   values (p_id, v_uid, p_category, btrim(p_title), btrim(p_description), p_suburb, p_urgency);
 
+  -- Supabase stores phone numbers without the leading "+"; add it for display and dialling.
   insert into public.job_private (job_id, address, contact_phone)
-  values (p_id, btrim(p_address), v_phone);
+  values (p_id, btrim(p_address), '+' || ltrim(v_phone, '+'));
 
   for v_item in select * from jsonb_array_elements(p_media) loop
     v_path := v_item ->> 'path';
